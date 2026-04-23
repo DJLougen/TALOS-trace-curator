@@ -93,18 +93,107 @@ python scripts/trace_processor.py \
 
 ## Quality Scoring
 
-Every trace receives a composite score (0.0–1.0). The score is **reported but never used to filter**.
+Every trace receives a composite **quality_score** (0.0–1.0) computed as a weighted sum across six independent dimensions. The score is **reported but never used to filter**.
 
-| Dimension | Weight | Measures |
-|-----------|--------|----------|
-| Reasoning Depth | 20% | Thinking blocks, substantial message length |
-| Structural Integrity | 20% | Valid roles, tool tags, assistant response present |
-| Tool-Call Validity | 15% | Well-formed JSON inside `<tool_call>` blocks |
-| Multi-Turn Coherence | 15% | Proper turn alternation, balanced lengths |
-| Length Filter | 15% | Within 256–32,768 token window |
-| Refusal Detection | 15% | Penalty for "I can't help" patterns |
+### Composite Formula
 
-Use `quality_score` downstream to create custom splits or weighted sampling.
+```
+quality_score = (reasoning_depth  × 0.20)
+                + (structure        × 0.20)
+                + (tool_calls       × 0.15)
+                + (coherence        × 0.15)
+                + (length           × 0.15)
+                + (refusal          × 0.15)
+```
+
+All six sub-scores are bounded [0.0, 1.0]. The final composite is clamped to [0.0, 1.0].
+
+### Dimension Breakdown
+
+#### 1. Reasoning Depth (20%)
+```python
+thinking_hits = count of <thinking>, <reasoning>, <thought>, <analyze> tags
+substantial   = count of messages with >100 characters
+score = min(1.0, thinking_hits × 0.15 + substantial × 0.10)
+```
+- A trace with 4 thinking tags + 6 substantial messages → 1.0
+- Bare system→user→assistant with no thinking → ~0.1–0.2
+
+#### 2. Structural Integrity (20%)
+Step-function score from four boolean checks:
+
+| Check | Contribution | Condition |
+|-------|--------------|-----------|
+| Messages present | +0.30 | `messages` array non-empty |
+| Thinking tags | +0.30 | Any thinking/reasoning block found |
+| Tool ecosystem | +0.20 | Both tool_call + tool_result present, **or** no tool tags at all |
+| Assistant reply | +0.20 | At least one `assistant` / `gpt` role |
+
+```python
+score = min(1.0, sum(contributions))
+```
+- Orphaned tool calls (no results) cap this at 0.80
+
+#### 3. Tool-Call Validity (15%)
+```python
+if no tool tags: score = 1.0
+blocks = regex extract between <tool_call>...</tool_call>
+if no blocks: score = 0.5
+score = (blocks that parse as JSON) / len(blocks)
+```
+- All valid JSON → 1.0; mixed → proportional; empty tags → 0.5
+- **Common failure mode**: Code inside tool blocks instead of JSON (seen heavily in pi-mono coding traces)
+
+#### 4. Multi-Turn Coherence (15%)
+```python
+if <2 messages or missing user/assistant: score = 0.3
+if avg_assistant < 20 chars and avg_user > 50: score = 0.2  # short-reply penalty
+
+switches = count of role alternations (user→assistant→user...)
+ratio    = switches / (total_messages - 1)
+score    = 0.5 + (ratio × 0.5)
+```
+- Perfect alternation → 1.0; all same role → 0.5; very short replies → 0.2
+
+#### 5. Length Filter (15%)
+```python
+tokens = len(all_text.split())
+if tokens < 256:   score = tokens / 256
+elif tokens > 32768: score = max(0.0, 1.0 - ((tokens - 32768) / 32768))
+else:                score = 1.0
+```
+- 128 tokens → 0.5; 65K tokens → 0.0; sweet spot → 1.0
+
+#### 6. Refusal Detection (15%)
+```python
+refusal_patterns = [
+    r"i\s+can'?t?\s+(?:help|do|assist)",
+    r"i'?m\s+sorry",
+    r"i\s+(?:don't|do not)\s+know",
+    r"unable\s+to",
+    r"not\s+(?:able|allowed)\s+to",
+]
+ratio = (assistant messages matching patterns) / len(assistant_messages)
+score = 0.0 if ratio > 0.5 else (1.0 - ratio)
+```
+- No refusals → 1.0; 1 in 4 → 0.75; >50% → 0.0
+
+### Interpreting Scores
+
+The scoring is intentionally strict: even "good" traces typically land in the 0.70–0.80 range, leaving headroom for truly exceptional traces.
+
+| Range | Interpretation |
+|-------|----------------|
+| 0.30 – 0.50 | Severely truncated or mostly refusals |
+| 0.50 – 0.60 | Below-average length or structure issues |
+| 0.60 – 0.70 | Decent but missing thinking blocks or minor tool errors |
+| 0.70 – 0.80 | Good structure, substantial content, clean execution |
+| 0.80 – 1.00 | Excellent (rare; requires perfection across all six dimensions) |
+
+**Recommended downstream thresholds:**
+- Conservative: `quality_score >= 0.70` + `error_class == "none"`
+- Balanced: `quality_score >= 0.60` + `error_class == "none"`
+- Full diversity: Use all traces, weight by `quality_score` during training
 
 ---
 
