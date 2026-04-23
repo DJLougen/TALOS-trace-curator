@@ -1618,6 +1618,11 @@ def main() -> None:
     # New scenario generation argument
     parser.add_argument("--generate-scenarios", type=int, help="Generate N synthetic scenarios")
     
+    # Export format selection
+    parser.add_argument("--export-format", type=str, default="axolotl", 
+                       choices=["axolotl", "sharegpt", "unsloth", "all"],
+                       help="Export format: axolotl (default), sharegpt, unsloth, or all")
+    
     args = parser.parse_args()
     
     if args.generate_scenarios:
@@ -1716,17 +1721,21 @@ def main() -> None:
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    with open(out_dir / "data.jsonl", "w", encoding="utf-8") as f:
-        for item in kept:
-            f.write(json.dumps(item["axolotl"], ensure_ascii=False) + "\n")
+    # Export based on selected format
+    if args.export_format in ("axolotl", "all"):
+        with open(out_dir / "data.jsonl", "w", encoding="utf-8") as f:
+            for item in kept:
+                f.write(json.dumps(item["axolotl"], ensure_ascii=False) + "\n")
 
-    with open(out_dir / "sharegpt.jsonl", "w", encoding="utf-8") as f:
-        for item in kept:
-            f.write(json.dumps(item["sharegpt"], ensure_ascii=False) + "\n")
+    if args.export_format in ("sharegpt", "all"):
+        with open(out_dir / "sharegpt.jsonl", "w", encoding="utf-8") as f:
+            for item in kept:
+                f.write(json.dumps(item["sharegpt"], ensure_ascii=False) + "\n")
 
-    with open(out_dir / "unsloth.jsonl", "w", encoding="utf-8") as f:
-        for item in kept:
-            f.write(json.dumps(item["unsloth"], ensure_ascii=False) + "\n")
+    if args.export_format in ("unsloth", "all"):
+        with open(out_dir / "unsloth.jsonl", "w", encoding="utf-8") as f:
+            for item in kept:
+                f.write(json.dumps(item["unsloth"], ensure_ascii=False) + "\n")
 
     # Error-masked training split: only traces with error_class == "none"
     if args.exclude_errors:

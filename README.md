@@ -134,26 +134,27 @@ python scripts/generate_traces.py 100 --multi-turn
 
 ---
 
-## 📤 Triple Export Formats
+## 📤 Selectable Export Formats
 
-TALOS generates three different export formats simultaneously to support various fine-tuning frameworks:
+TALOS supports multiple export formats. Choose your target framework:
 
-### Axolotl Format (`data.jsonl`)
-- Full metadata with quality scores, error classes, and trace IDs
-- Messages array with system/user/assistant roles
-- Enhanced metadata for advanced analysis
+### Available Formats
+- **Axolotl** (`--export-format axolotl`): Full metadata with quality scores and error classes
+- **ShareGPT** (`--export-format sharegpt`): Classic compatibility format
+- **Unsloth** (`--export-format unsloth`): Simplified messages format for Unsloth fine-tuning
+- **All** (`--export-format all`): Generate all formats (for experimentation)
 
-### ShareGPT Format (`sharegpt.jsonl`)
-- Classic `conversations` format
-- `from` field: `system`, `human`, `gpt`
-- `value` field: message content
-- Maximum compatibility with existing tooling
+### Usage Examples
+```bash
+# Export to Axolotl format (default)
+python scripts/trace_processor.py --input-file data.jsonl --export-format axolotl
 
-### Unsloth Format (`unsloth.jsonl`)
-- Simplified `messages` array focused on content
-- Includes `source_session_id`, `quality_score`, and `error_class`
-- Optimized for Unsloth fine-tuning workflows
-- Clean separation of concerns
+# Export to Unsloth format
+python scripts/trace_processor.py --input-file data.jsonl --export-format unsloth
+
+# Generate all formats
+python scripts/trace_processor.py --input-file data.jsonl --export-format all
+```
 
 ---
 
@@ -502,6 +503,8 @@ pip install sentence-transformers  # For semantic dedup
 | [Talos-kimi-k2.6-Hermes-synthetic](https://huggingface.co/datasets/DJLougen/Talos-kimi-k2.6-Hermes-synthetic) | 993 | 761 (76.6%) | 0.76 | ~2 min |
 | [Talos-pi-mono-badlogicgames](https://huggingface.co/datasets/DJLougen/Talos-pi-mono-badlogicgames) | 611 | 149 (24.4%) | 0.66 | ~1 min |
 | [Talos-Scenarios](https://huggingface.co/datasets/DJLougen/Talos-Scenarios) | 602 | — | — | ~30 sec |
+
+**Processing Time**: Time to process raw traces through the complete pipeline (quality scoring, error classification, deduplication, and export). Actual times may vary based on hardware, dataset size, and complexity of traces.
 
 ---
 
