@@ -75,3 +75,7 @@ temp/
 .cache/
 .hypothesis/
 
+# Hackathon and marketing files
+HACKATHON_SUBMISSION.md
+example-usage.md
+
