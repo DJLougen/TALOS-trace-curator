@@ -127,6 +127,7 @@ python scripts/generate_traces.py 100 --multi-turn
 | `--export-scenarios` | Extract user prompts to `scenarios.jsonl` + `scenarios.md` | `False` |
 | `--generate-scenarios N` | Generate N synthetic scenarios | `False` |
 | `--push-to-hub` | Upload to HuggingFace Hub | `False` |
+| `--export-format` | Export format: `axolotl`, `sharegpt`, `unsloth`, or `all` | `axolotl` |
 | `--repo-id` | HF dataset repo ID | `DJLougen/ornstein-curated-v2` |
 | `--public` | Make HF repo public | `False` (private) |
 | `--no-llm-redact` | Skip optional LLM redaction pass | `False` |
