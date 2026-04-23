@@ -1106,6 +1106,43 @@ class ShareGPTFormatter:
 
         return {"conversations": conversations}
 
+
+class UnslothFormatter:
+    """
+    Format traces for Unsloth fine-tuning.
+    Unsloth uses a simplified format focused on messages array.
+    """
+    @classmethod
+    def format(
+        cls,
+        trace: Dict[str, Any],
+        quality_score: float = 0.0,
+        source_id: str = "",
+        error_class: str = "none",
+    ) -> Dict[str, Any]:
+        messages = _extract_messages(trace)
+        has_system = any(m.get("role") == "system" for m in messages)
+        if not has_system:
+            messages.insert(0, {"role": "system", "content": SYSTEM_PROMPT})
+
+        normalized = []
+        for m in messages:
+            role = m.get("role", "")
+            content = m.get("content", "")
+            if role in ("human", "user"):
+                normalized.append({"role": "user", "content": content})
+            elif role in ("gpt", "assistant"):
+                normalized.append({"role": "assistant", "content": content})
+            elif role == "system":
+                normalized.append({"role": "system", "content": content})
+
+        return {
+            "messages": normalized,
+            "source_session_id": source_id,
+            "quality_score": round(quality_score, 2),
+            "error_class": error_class,
+        }
+
 # =============================================================================
 # Dataset Card
 # =============================================================================
@@ -1652,10 +1689,12 @@ def main() -> None:
         # Format
         axolotl = AxolotlFormatter.format(trace, score, trace_id, error_class=error_class)
         sharegpt = ShareGPTFormatter.format(trace)
+        unsloth = UnslothFormatter.format(trace, score, trace_id, error_class=error_class)
 
         kept.append({
             "axolotl": axolotl,
             "sharegpt": sharegpt,
+            "unsloth": unsloth,
             "score": score,
             "breakdown": breakdown,
         })
@@ -1684,6 +1723,10 @@ def main() -> None:
     with open(out_dir / "sharegpt.jsonl", "w", encoding="utf-8") as f:
         for item in kept:
             f.write(json.dumps(item["sharegpt"], ensure_ascii=False) + "\n")
+
+    with open(out_dir / "unsloth.jsonl", "w", encoding="utf-8") as f:
+        for item in kept:
+            f.write(json.dumps(item["unsloth"], ensure_ascii=False) + "\n")
 
     # Error-masked training split: only traces with error_class == "none"
     if args.exclude_errors:
