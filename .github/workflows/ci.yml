@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Run basic syntax check
+      run: |
+        python -m py_compile scripts/trace_processor.py
+        python -m py_compile scripts/generate_traces.py
+        python -m py_compile scripts/hf_dataset_converter.py
+
+    - name: Test mock data generation
+      run: |
+        python scripts/trace_processor.py --generate-mock
+
+    - name: Test scenario generation
+      run: |
+        python scripts/trace_processor.py --generate-scenarios 10
+
+    - name: Validate output
+      run: |
+        # Check if mock data was created
+        test -f curated-dataset/data.jsonl || exit 1
+        test -f curated-dataset/dataset_card.md || exit 1
+        
+        # Check if scenarios were generated
+        test -f scenarios/generated_scenarios.jsonl || exit 1
+        test -f scenarios/generated_scenarios.md || exit 1
+
+  lint:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+
+    - name: Install linting tools
+      run: |
+        python -m pip install --upgrade pip
+        pip install flake8 black isort
+
+    - name: Run flake8
+      run: |
+        flake8 scripts/ --max-line-length=120 --ignore=E501,W503
+
+    - name: Check formatting
+      run: |
+        black --check scripts/
+        isort --check-only --profile black scripts/

@@ -836,6 +836,7 @@ def chat_completion(user_message: str, model: str = MODEL, max_tokens: int = 204
 def generate_traces(
     count: int = 100,
     output_path: Path = SESSIONS_DIR / "generated_traces.jsonl",
+    multi_turn: bool = True,
 ) -> None:
     random.shuffle(TASKS)
     selected = TASKS[:count]
@@ -846,15 +847,20 @@ def generate_traces(
             session_id = datetime.now().strftime("%Y%m%d_%H%M%S") + f"_{idx:03d}"
             print(f"[{idx}/{count}] {task[:60]}...", flush=True)
 
-            response = chat_completion(task)
-            trace = {
-                "session_id": session_id,
-                "messages": [
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": task},
-                    {"role": "assistant", "content": response},
-                ],
-            }
+            if multi_turn and random.random() < 0.3:  # 30% chance of multi-turn
+                trace = generate_multi_turn_trace(task, session_id)
+            else:
+                # Single turn
+                response = chat_completion(task)
+                trace = {
+                    "session_id": session_id,
+                    "messages": [
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user", "content": task},
+                        {"role": "assistant", "content": response},
+                    ],
+                }
+            
             f.write(json.dumps(trace, ensure_ascii=False) + "\n")
             f.flush()
 
@@ -865,6 +871,105 @@ def generate_traces(
     print(f"\nDone. Traces appended to {output_path}")
 
 
+def generate_multi_turn_trace(task: str, session_id: str) -> Dict[str, Any]:
+    """Generate a multi-turn conversation with follow-up questions."""
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    
+    # Initial user message
+    messages.append({"role": "user", "content": task})
+    
+    # Get initial response
+    initial_response = chat_completion(task)
+    messages.append({"role": "assistant", "content": initial_response})
+    
+    # Generate follow-up based on the conversation
+    follow_ups = generate_follow_ups(task, initial_response)
+    
+    for follow_up in follow_ups[:2]:  # Limit to 2 follow-ups
+        messages.append({"role": "user", "content": follow_up})
+        # Get response to follow-up
+        conversation_text = "\n".join(
+            f"{m['role']}: {m['content']}" for m in messages
+        )
+        follow_up_response = chat_completion(follow_up, conversation_text)
+        messages.append({"role": "assistant", "content": follow_up_response})
+    
+    return {"session_id": session_id, "messages": messages}
+
+
+def generate_follow_ups(initial_task: str, initial_response: str) -> List[str]:
+    """Generate relevant follow-up questions based on the initial conversation."""
+    follow_ups = []
+    
+    # Analyze the initial task to generate contextually relevant follow-ups
+    task_lower = initial_task.lower()
+    
+    # Coding follow-ups
+    if any(word in task_lower for word in ["python", "code", "script", "function", "implement"]):
+        follow_ups.extend([
+            f"Can you add error handling to that solution?",
+            f"What would be the most efficient way to optimize this approach?",
+        ])
+    # Reasoning follow-ups
+    elif any(word in task_lower for word in ["solve", "calculate", "prove", "explain"]):
+        follow_ups.extend([
+            f"Can you walk me through the key insight in your solution?",
+            f"What are the edge cases I should consider for this problem?",
+        ])
+    # Creative follow-ups
+    elif any(word in task_lower for word in ["write", "create", "draft", "story", "poem"]):
+        follow_ups.extend([
+            f"Could you make that more concise while keeping the core message?",
+            f"What other approaches could I take for this type of creative task?",
+        ])
+    # General follow-ups
+    else:
+        follow_ups.extend([
+            f"Could you elaborate on that explanation?",
+            f"What are the key takeaways from your response?",
+        ])
+    
+    return follow_ups
+
+
+def chat_completion(user_message: str, conversation_context: str = "", model: str = MODEL, max_tokens: int = 2048) -> str:
+    """Send a single-turn chat request to Ollama OpenAI-compatible endpoint."""
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    
+    # Add conversation context if provided
+    if conversation_context:
+        # Parse previous conversation into messages
+        for line in conversation_context.split("\n"):
+            if ": " in line:
+                role, content = line.split(": ", 1)
+                if role in ["user", "assistant", "system"]:
+                    messages.append({"role": role, "content": content})
+    
+    messages.append({"role": "user", "content": user_message})
+    
+    payload = json.dumps({
+        "model": model,
+        "messages": messages,
+        "stream": False,
+        "options": {"temperature": 0.7, "num_predict": max_tokens},
+    }).encode("utf-8")
+
+    req = urllib.request.Request(
+        f"{OLLAMA_URL}/chat/completions",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=300) as resp:
+            result = json.loads(resp.read())
+            return result["choices"][0]["message"]["content"]
+    except Exception as exc:
+        return f"[ERROR: {exc}]"
+
+
 if __name__ == "__main__":
     count = int(sys.argv[1]) if len(sys.argv) > 1 else 100
-    generate_traces(count=count)
+    multi_turn = "--multi-turn" in sys.argv or "-m" in sys.argv
+    generate_traces(count=count, multi_turn=multi_turn)

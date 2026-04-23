@@ -19,13 +19,19 @@ Turn raw, messy Hermes Agent session traces into clean, anonymized, scored train
 1. **Ingests** raw Hermes JSONL session traces
 2. **Anonymizes** PII, credentials, paths, and identifiers (regex + optional local LLM pass)
 3. **Scores** every trace on reasoning depth, structure, tool-use correctness, coherence, length, and refusal ratio (reported, never filtered)
+   - Enhanced reasoning depth detection with multi-step analysis
+   - Improved coherence scoring with conversation flow detection
 4. **Classifies** every trace into one of 5 error categories (or `none`)
-5. **Deduplicates** via lexical-diversity comparison that ignores boilerplate tool-call JSON, so traces with identical tool calls but different reasoning are preserved
+5. **Deduplicates** via advanced lexical-diversity comparison that ignores boilerplate tool-call JSON, so traces with identical tool calls but different reasoning are preserved
+   - Enhanced semantic deduplication with hybrid similarity scoring
+   - Better handling of tool-call boilerplate
 6. **Exports** two formats simultaneously:
    - `data.jsonl` — Axolotl-native `messages` format (primary)
    - `sharegpt.jsonl` — Classic ShareGPT `conversations` format (compatibility)
 7. **Generates** a rich `dataset_card.md` with stats, quality distribution, and 5-factor error breakdown
-8. **(Optional)** Pushes the curated dataset to the Hugging Face Hub
+8. **Extracts scenarios** with multi-turn conversation capture and semantic categorization
+9. **Generates scenarios** using intelligent template-based creation with diverse parameter libraries
+10. **(Optional)** Pushes the curated dataset to the Hugging Face Hub
 
 ## Installation
 
@@ -80,12 +86,26 @@ Every trace receives a composite score (0.0–1.0). The score is **reported but 
 
 | Dimension | Weight | What It Measures |
 |-----------|--------|------------------|
-| Reasoning Depth | 20% | Presence of `<thinking>` / reasoning blocks and substantial turns |
+| Reasoning Depth | 20% | Presence of `<thinking>` / reasoning blocks, substantial turns, and deep reasoning patterns |
 | Structural Integrity | 20% | Valid message array, thinking blocks, tool call format, final answer |
 | Tool-Call Validity | 15% | Correct JSON inside tool call tags, success indicators |
-| Multi-Turn Coherence | 15% | Logical turn alternation and response length appropriateness |
+| Multi-Turn Coherence | 15% | Logical turn alternation, response length appropriateness, and conversation flow detection |
 | Length Filter | 15% | Between 256 and 32,768 tokens (rough word-count heuristic) |
 | Refusal Detection | 15% | Ratio of "I can't / I'm sorry" refusals vs total assistant turns |
+
+### Enhanced Reasoning Depth Scoring
+
+The reasoning depth dimension now detects deeper patterns beyond just thinking tags:
+- Multi-step reasoning indicators (first, second, third, etc.)
+- Deep reasoning phrases (let me think, step by step, therefore, etc.)
+- Rewards substantial responses with explicit step-by-step analysis
+
+### Enhanced Coherence Scoring
+
+The coherence dimension now includes conversation flow detection:
+- Contextual reference detection (yes, no, correct, exactly)
+- References to previous conversation context
+- Bonus for responses that build on prior turns
 
 Use the `quality_score` field downstream to filter or weight examples.
 
@@ -117,10 +137,17 @@ When `sentence-transformers` is installed, passing `--semantic-dedup` computes d
 
 Extracts every unique user prompt into two extra files for bootstrapping synthetic trace generation or benchmarking agents:
 
-- `scenarios.jsonl` — Structured JSON with `scenario`, `category`, `complexity`, `requires_tools`, `source_session_id`, `word_count`
+- `scenarios.jsonl` — Structured JSON with `scenario`, `category`, `complexity`, `requires_tools`, `source_session_id`, `word_count`, `is_multi_turn`, `turn_count`
 - `scenarios.md` — Human-readable grouped by category with complexity badges and tool-use indicators
 
-Categories are inferred from prompt text: `coding`, `reasoning`, `creative`, `tool_use`, `science`, `history`, `business`, `philosophy`, `general`.
+### Multi-Turn Capture
+
+The scenario extractor now captures multi-turn conversations:
+- Detects clarification scenarios (help me plan, ask me, etc.)
+- Stores follow-up questions for multi-turn interactions
+- Includes full conversation context when available
+
+Categories are inferred from prompt text: `coding`, `reasoning`, `creative`, `tool_use`, `science`, `history`, `business`, `philosophy`, `multi_turn`, `general`.
 
 ## Output Formats
 
@@ -168,6 +195,46 @@ val_size: 0.05
 ## Example Commands
 
 See `example-usage.md` for copy-paste commands.
+
+## Enhanced Trace Generation
+
+The synthetic trace generator now supports multi-turn conversations:
+
+```bash
+# Generate 100 traces with 30% multi-turn conversations
+python scripts/generate_traces.py 100 --multi-turn
+
+# Generate 100 single-turn traces only  
+python scripts/generate_traces.py 100
+```
+
+### Multi-Turn Features
+
+- **Contextual Follow-ups**: Generates relevant follow-up questions based on the initial task
+- **Conversation Flow**: Maintains conversation context across multiple turns
+- **Smart Categorization**: Different follow-up patterns for coding, reasoning, and creative tasks
+
+## Scenario Generation
+
+The pipeline includes intelligent scenario generation that creates new scenarios based on learned patterns:
+
+```bash
+# Generate 100 diverse synthetic scenarios
+python scripts/trace_processor.py --generate-scenarios 100
+```
+
+### How It Works
+
+1. **Template-based generation** with intelligent parameter substitution
+2. **Category-specific templates**: coding, reasoning, creative, tool_use, multi_turn
+3. **Diverse parameter libraries** with realistic technical terms
+4. **Automatic complexity assessment** and tool-use detection
+
+### Example Generated Scenarios
+
+- **Coding**: "Write a Python decorator that transforms data streams using Dijkstra algorithm."
+- **Reasoning**: "Solve this problem: a train leaves station A at 60mph while another leaves station B at 80mph, when do they meet? Show your work step by step."
+- **Multi-turn**: "Help me design a database for real-time analytics. Ask me about requirements first."
 
 ## Notes
 

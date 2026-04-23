@@ -35,6 +35,8 @@ One command. Eight stages. Zero traces filtered out.
 **Anonymize** → emails, phones, API keys, paths, entropy tokens. Optional LLM pass.
 
 **Quality Score** → 6-dimension composite (0.0–1.0). Reports only. Never filters.
+- Enhanced reasoning depth detection with multi-step analysis
+- Improved coherence scoring with conversation flow detection
 
 **5-Factor Error Class** → every trace gets exactly one label:
 
@@ -47,13 +49,21 @@ timeout_stall  → Truncated responses
 none           → Clean
 ```
 
-**Semantic Deduplication** → strips tool-call JSON, compares reasoning + prose
+**Advanced Deduplication** → strips tool-call JSON, compares reasoning + prose
+- Enhanced semantic dedup with hybrid similarity scoring
+- Better handling of tool-call boilerplate
 
 **Dual Export** → Axolotl `messages` + ShareGPT `conversations`
 
 **Auto Dataset Card** → stats + error breakdown + YAML
 
+**Scenario Extraction** → multi-turn conversation capture with semantic categorization
+
+**Scenario Generation** → intelligent template-based scenario creation with diverse parameters
+
 **HF Upload** → `--push-to-hub`
+
+**Multi-Turn Generation** → 30% of synthetic traces are multi-turn conversations
 
 ---
 
@@ -64,9 +74,12 @@ none           → Clean
 | **Real problem** | Every Hermes user has raw logs. No pipeline exists. |
 | **Hermes-native** | `SKILL.md`, reads `~/.hermes/sessions/`, uses Ollama config |
 | **Kimi-tested** | 100 traces with `kimi-k2.6:cloud`. Real outputs, not synthetic. |
-| **Novel** | 5-factor agent taxonomy. Semantic dedup. Score-without-filter. |
+| **Novel** | 5-factor agent taxonomy. Enhanced semantic dedup. Score-without-filter. |
+| **Multi-turn** | Advanced multi-turn conversation capture and generation |
+| **Scenario Generation** | Intelligent template-based scenario creation with diverse parameters |
 | **Community** | Every `--push-to-hub` creates a public HF dataset. |
 | **Production** | 10k+ traces, resume-safe, one file, minimal deps. |
+| **Quality** | Enhanced scoring with reasoning depth analysis and flow detection |
 
 ---
 

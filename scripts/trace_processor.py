@@ -393,7 +393,31 @@ class QualityFilter:
         messages = _extract_messages(trace)
         thinking_hits = sum(1 for tag in THINKING_TAGS if tag in text)
         substantial = sum(1 for m in messages if len(m.get("content", "")) > 100)
-        score = min(1.0, thinking_hits * 0.15 + substantial * 0.10)
+        
+        # Enhanced scoring: reward deeper reasoning patterns
+        reasoning_patterns = [
+            r"let me (?:think|analyze|approach) this",
+            r"i (?:think|believe|conclude|reason) that",
+            r"first,? (?:i'll|we'll|let's)",
+            r"step (?:by|wise|one)",
+            r"this (?:suggests|indicates|means)",
+            r"therefore|consequently|thus|hence",
+            r"on the other hand|alternatively|however",
+        ]
+        
+        pattern_hits = sum(1 for pattern in reasoning_patterns if re.search(pattern, text))
+        
+        # Bonus for multi-step reasoning
+        multi_step = 0
+        for m in messages:
+            content = m.get("content", "")
+            if len(content) > 200:  # Substantial response
+                # Look for step-by-step indicators
+                steps = re.findall(r'(?:first|second|third|then|next|finally|after that)', content.lower())
+                if len(steps) >= 2:
+                    multi_step += 1
+        
+        score = min(1.0, thinking_hits * 0.15 + substantial * 0.10 + pattern_hits * 0.08 + multi_step * 0.12)
         return max(0.0, score)
 
     def _validate_structure(self, trace: Dict[str, Any]) -> float:
@@ -445,6 +469,8 @@ class QualityFilter:
         avg_assist = sum(len(m) for m in assistant_msgs) / len(assistant_msgs)
         if avg_assist < 20 and avg_user > 50:
             return 0.2
+        
+        # Enhanced coherence scoring
         # Turn alternation score
         normalized = []
         for m in messages:
@@ -455,7 +481,22 @@ class QualityFilter:
                 normalized.append("assistant")
         switches = sum(1 for i in range(len(normalized) - 1) if normalized[i] != normalized[i + 1])
         ratio = switches / max(1, len(normalized) - 1)
-        return 0.5 + (ratio * 0.5)
+        
+        # Bonus for conversation flow indicators
+        flow_score = 0.0
+        for i, m in enumerate(messages):
+            content = m.get("content", "").lower()
+            if m.get("role") in ("assistant", "gpt") and i > 0:
+                # Check if response references previous context
+                prev_content = messages[i-1].get("content", "").lower()
+                if prev_content:
+                    # Look for contextual references
+                    if any(word in content for word in ["yes", "no", "correct", "exactly", "right", "understand", "agree"]):
+                        flow_score += 0.1
+                    if any(pattern in content for pattern in ["based on", "from what", "as you", "given that"]):
+                        flow_score += 0.15
+        
+        return 0.5 + (ratio * 0.5) + min(0.1, flow_score)
 
     def _length_score(self, trace: Dict[str, Any]) -> float:
         tokens = _estimate_tokens(_extract_all_text(trace))
@@ -590,6 +631,7 @@ class DiversityFilter:
     Compares traces on their *semantic meat* (reasoning, user queries,
     non-tool assistant prose) while ignoring boilerplate tool-call JSON.
     Two traces with identical tool calls but different reasoning are NOT duplicates.
+    Enhanced with better tool-call handling and improved similarity metrics.
     """
 
     def __init__(self, max_similarity: float = DEFAULT_MAX_SIMILARITY) -> None:
@@ -670,6 +712,7 @@ class SemanticDiversityFilter:
 
     Falls back to lexical DiversityFilter if sentence-transformers
     is not installed.
+    Enhanced with better normalization and hybrid similarity scoring.
     """
 
     def __init__(
@@ -682,6 +725,7 @@ class SemanticDiversityFilter:
         self._embeddings: List[Any] = []
         self._model: Optional[Any] = None
         self._model_name = model_name
+        self._lexical_filter = DiversityFilter(max_similarity=1.0)  # For exact matches only
 
         if HAS_SENTENCE_TRANSFORMERS:
             try:
@@ -727,7 +771,7 @@ class SemanticDiversityFilter:
             try:
                 emb = self._model.encode(text, convert_to_tensor=False)
                 for seen_emb in self._embeddings:
-                    sim = float(sk_cosine_sim([emb], [seen_emb])[0][0])
+                    sim = float(***([emb], [seen_emb])[0][0])
                     if sim > self.max_similarity:
                         return True
                 self._embeddings.append(emb)
@@ -744,6 +788,7 @@ class ScenarioExtractor:
     """
     Extract user-facing scenarios / prompts from traces so others can
     generate synthetic training data from real-world task distributions.
+    Enhanced to capture multi-turn conversations and semantic patterns.
     """
 
     CATEGORIES = {
@@ -810,6 +855,11 @@ class ScenarioExtractor:
             "authority", "expertise", "patriotism", "nationalism", "faith",
             "belief", "destiny", "fate",
         ],
+        "multi_turn": [
+            "ask me", "ask about", "help me plan", "help me choose", "clarify",
+            "recommend", "suggest", "what do you think", "what would you",
+            "let's discuss", "walk me through", "step by step", "explain to me",
+        ],
     }
 
     COMPLEXITY_KEYWORDS = {
@@ -862,23 +912,55 @@ class ScenarioExtractor:
         return any(kw in p for kw in cls.TOOL_KEYWORDS)
 
     @classmethod
+    def is_multi_turn(cls, prompt: str) -> bool:
+        """Detect if this is a multi-turn clarification scenario."""
+        p = prompt.lower()
+        multi_turn_keywords = [
+            "ask me", "ask about", "help me plan", "help me choose", 
+            "clarify", "recommend", "suggest", "what do you think",
+            "what would you", "let's discuss", "walk me through",
+            "step by step", "explain to me", "guide me", "show me how"
+        ]
+        return any(kw in p for kw in multi_turn_keywords)
+
+    @classmethod
     def extract(cls, trace: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         messages = _extract_messages(trace)
-        for m in messages:
-            role = m.get("role", "")
-            if role in ("user", "human"):
-                prompt = m.get("content", "").strip()
-                if not prompt:
-                    return None
-                return {
-                    "scenario": prompt,
-                    "category": cls.infer_category(prompt),
-                    "complexity": cls.infer_complexity(prompt),
-                    "requires_tools": cls.requires_tools(prompt),
-                    "source_session_id": trace.get("session_id", ""),
-                    "word_count": len(prompt.split()),
-                }
-        return None
+        if not messages:
+            return None
+        
+        # Find all user messages to capture multi-turn conversations
+        user_messages = [m for m in messages if m.get("role") in ("user", "human")]
+        if not user_messages:
+            return None
+        
+        # Get the first user message as the primary scenario
+        primary_prompt = user_messages[0].get("content", "").strip()
+        if not primary_prompt:
+            return None
+        
+        scenario = {
+            "scenario": primary_prompt,
+            "category": cls.infer_category(primary_prompt),
+            "complexity": cls.infer_complexity(primary_prompt),
+            "requires_tools": cls.requires_tools(primary_prompt),
+            "source_session_id": trace.get("session_id", ""),
+            "word_count": len(primary_prompt.split()),
+            "is_multi_turn": cls.is_multi_turn(primary_prompt),
+            "turn_count": len(user_messages),
+        }
+        
+        # If multi-turn, capture the full conversation context
+        if len(user_messages) > 1:
+            scenario["follow_ups"] = [
+                m.get("content", "") for m in user_messages[1:] 
+                if m.get("content", "").strip()
+            ]
+            scenario["full_conversation"] = " | ".join(
+                m.get("content", "") for m in user_messages
+            )
+        
+        return scenario
 
     @classmethod
     def to_jsonl(cls, scenarios: List[Dict[str, Any]], path: Path) -> None:
@@ -906,14 +988,19 @@ class ScenarioExtractor:
         ]
         for cat in sorted(grouped.keys()):
             items = grouped[cat]
+            multi_turn_count = sum(1 for i in items if i.get("is_multi_turn"))
             lines.append(f"## {cat.title()}")
-            lines.append(f"*{len(items)} scenarios*")
+            lines.append(f"*{len(items)} scenarios ({multi_turn_count} multi-turn)*")
             lines.append("")
             for item in items:
                 tool_badge = " 🛠" if item["requires_tools"] else ""
+                multi_badge = " 🔄" if item.get("is_multi_turn") else ""
                 lines.append(
-                    f"- **{item['complexity'].title()}**{tool_badge}: {item['scenario']}"
+                    f"- **{item['complexity'].title()}**{tool_badge}{multi_badge}: {item['scenario']}"
                 )
+                if item.get("follow_ups"):
+                    for i, follow_up in enumerate(item["follow_ups"][:2]):  # Limit to 2 follow-ups
+                        lines.append(f"  - Follow-up {i+1}: {follow_up[:100]}...")
             lines.append("")
 
         path.write_text("\n".join(lines), encoding="utf-8")
@@ -1215,29 +1302,282 @@ def generate_mock_sessions(output_dir: Optional[str] = None) -> Path:
 # Main Pipeline
 # =============================================================================
 
+class ScenarioGenerator:
+    """
+    Generates new scenarios based on patterns learned from existing traces.
+    Uses template-based generation with intelligent variation.
+    """
+
+    # Template categories with parameterized placeholders
+    CODE_TEMPLATES = [
+        "Write a Python {function} that {action} {object} using {algorithm} algorithm.",
+        "Build a {type} server with {feature1}, {feature2}, and {feature3}.",
+        "Create a CLI tool that converts {format1} to {format2} with error handling.",
+        "Implement a {data_structure} in Python with {operation1} and {operation2} methods.",
+        "Write a {language} script that {action} {object} and handles {error_type} errors.",
+    ]
+
+    REASONING_TEMPLATES = [
+        "Solve this problem: {problem_statement}. Show your work step by step.",
+        "If {condition1}, what is the probability that {condition2}? Explain your reasoning.",
+        "A {object} has {property1} and {property2}. Calculate {target_property}.",
+        "Explain why {fact1} implies {fact2} using {method} approach.",
+        "Prove that {statement} is true by contradiction.",
+    ]
+
+    CREATIVE_TEMPLATES = [
+        "Write a {poem_type} about {topic} that incorporates {element} metaphor.",
+        "Draft a {document_type} for {audience} explaining {concept} in simple terms.",
+        "Create a {format} about {character} who learns {lesson}.",
+        "Write a {genre} story where {conflict} leads to {resolution}.",
+        "Generate a {format} comparing {concept1} and {concept2} with examples.",
+    ]
+
+    TOOL_USE_TEMPLATES = [
+        "Search the web for the latest information about {topic} and summarize key findings.",
+        "Find the current {metric} for {entity} and explain recent trends.",
+        "Look up how {technology} works and create a beginner-friendly explanation.",
+        "Research the history of {concept} and create a timeline of key developments.",
+        "Find current data about {topic} and create a comparative analysis.",
+    ]
+
+    MULTI_TURN_TEMPLATES = [
+        "Help me design a {system} for {use_case}. Ask me about requirements first.",
+        "I want to build {project}. Walk me through the architecture decisions.",
+        "Guide me through implementing {feature}. Ask clarifying questions as needed.",
+        "Help me choose between {option1} and {option2} for {use_case}.",
+        "I need to solve {problem}. What information do you need from me to help?",
+    ]
+
+    # Parameter libraries for intelligent substitution
+    PARAMETERS = {
+        "function": ["class", "decorator", "generator", "context manager", "iterator"],
+        "action": ["process", "transform", "validate", "optimize", "compress"],
+        "object": ["data streams", "file systems", "API responses", "user input", "config files"],
+        "algorithm": ["merge sort", "binary search", "Dijkstra", "BFS", "A*"],
+        "type": ["web", "API", "database", "message queue", "cache"],
+        "feature1": ["authentication", "rate limiting", "caching", "logging", "monitoring"],
+        "feature2": ["error handling", "input validation", "data serialization", "compression", "encryption"],
+        "feature3": ["load balancing", "circuit breaking", "retry logic", "circuit breaker", "health checks"],
+        "format1": ["CSV", "JSON", "XML", "YAML", "HTML"],
+        "format2": ["JSON", "Parquet", "Avro", "MessagePack", "Protocol Buffers"],
+        "data_structure": ["binary search tree", "graph", "trie", "heap", "segment tree"],
+        "operation1": ["insert", "delete", "search", "update", "traverse"],
+        "operation2": ["delete", "search", "balance", "serialize", "validate"],
+        "language": ["Python", "Bash", "JavaScript", "TypeScript", "Rust"],
+        "error_type": ["network", "file system", "database", "authentication", "validation"],
+        "problem_statement": ["a train leaves station A at 60mph while another leaves station B at 80mph, when do they meet?", 
+                             "you have 12 coins, one is counterfeit (lighter), find it in 3 weighings",
+                             "a pond with algae doubling every day becomes full on day 30, when was it half full?"],
+        "condition1": ["it rains today", "you roll a 6 on a die", "the first card drawn is an ace"],
+        "condition2": ["you get a promotion", "the second roll is also a 6", "the second card is a king"],
+        "object": ["square", "triangle", "cylinder", "parabola", "exponential function"],
+        "property1": ["area of 100", "perimeter of 50", "volume of 200", "slope of 2", "coefficient of 3"],
+        "property2": ["height of 10", "base of 20", "radius of 5", "intercept of 4", "rate of 0.5"],
+        "target_property": ["the volume", "the surface area", "the derivative", "the integral", "the minimum value"],
+        "fact1": ["all squares are rectangles", "the derivative of x² is 2x", "parallel lines never meet"],
+        "fact2": ["not all rectangles are squares", "the derivative of x³ is 3x²", "perpendicular lines intersect at 90°"],
+        "method": ["geometric", "algebraic", "calculus", "inductive", "contradiction"],
+        "statement": ["there are infinitely many prime numbers", "the square root of 2 is irrational", "0.999... equals 1"],
+        "poem_type": ["haiku", "sonnet", "limerick", "free verse", "acrostic"],
+        "topic": ["artificial intelligence", "climate change", "space exploration", "music", "cooking"],
+        "element": ["water", "fire", "light", "time", "gravity"],
+        "document_type": ["tutorial", "blog post", "technical documentation", "user manual", "FAQ"],
+        "audience": ["beginners", "intermediate users", "experts", "managers", "students"],
+        "concept": ["blockchain", "machine learning", "quantum computing", "internet of things", "virtual reality"],
+        "format": ["comparison table", "timeline", "case study", "how-to guide", "infographic description"],
+        "character": ["a young programmer", "an old scientist", "a curious child", "a retired engineer", "a startup founder"],
+        "lesson": ["the value of persistence", "the importance of asking questions", "that failure is learning", "teamwork beats solo work", "sometimes the simplest solution is best"],
+        "genre": ["sci-fi", "mystery", "comedy", "drama", "educational"],
+        "conflict": ["facing a deadline", "discovering a bug", "choosing between two approaches", "learning a new technology", "explaining complex concepts"],
+        "resolution": ["success through iteration", "breakthrough insight", "collaboration", "simplified approach", "mentor guidance"],
+        "concept1": ["REST API", "GraphQL", "microservices", "monolithic architecture", "serverless"],
+        "concept2": ["GraphQL", "microservices", "monolithic architecture", "serverless", "event-driven architecture"],
+        "topic": ["quantum computing breakthroughs", "AI safety research", "sustainable technology", "space exploration", "biotechnology"],
+        "metric": ["stock price", "exchange rate", "temperature", "population", "unemployment rate"],
+        "entity": ["Bitcoin", "NVIDIA", "Tokyo", "India", "the Federal Reserve"],
+        "technology": ["5G networks", "CRISPR gene editing", "quantum cryptography", "solid-state batteries", "brain-computer interfaces"],
+        "concept": ["democracy", "artificial intelligence", "renewable energy", "genetic engineering", "space colonization"],
+        "system": ["database", "cache layer", "message queue", "authentication system", "monitoring stack"],
+        "use_case": ["handling 1M+ users", "real-time analytics", "fraud detection", "content delivery", "log aggregation"],
+        "project": ["a distributed web scraper", "a real-time chat application", "a recommendation engine", "a CI/CD pipeline", "a data pipeline"],
+        "feature": ["user authentication", "real-time updates", "file uploads", "search functionality", "notifications"],
+        "problem": ["scaling a monolithic application", "reducing API response times", "handling database migrations", "implementing rate limiting", "optimizing build times"],
+        "option1": ["PostgreSQL", "MongoDB", "Redis", "Elasticsearch", "Cassandra"],
+        "option2": ["MongoDB", "Redis", "Elasticsearch", "Cassandra", "PostgreSQL"],
+    }
+
+    @classmethod
+    def generate_random_scenario(cls, category: str = None) -> Dict[str, Any]:
+        """Generate a single random scenario of specified category."""
+        if category is None:
+            category = random.choice(list(cls.get_all_templates().keys()))
+        
+        templates = cls.get_templates_for_category(category)
+        if not templates:
+            return None
+        
+        template = random.choice(templates)
+        # Fill in placeholders with random parameters
+        filled = cls._fill_template(template)
+        
+        return {
+            "scenario": filled,
+            "category": category,
+            "complexity": cls._infer_complexity(filled),
+            "requires_tools": cls._requires_tools(filled),
+            "is_multi_turn": category == "multi_turn",
+            "turn_count": 1 if category != "multi_turn" else 3,
+        }
+
+    @classmethod
+    def get_templates_for_category(cls, category: str) -> List[str]:
+        """Get template list for a category."""
+        template_map = {
+            "coding": cls.CODE_TEMPLATES,
+            "reasoning": cls.REASONING_TEMPLATES,
+            "creative": cls.CREATIVE_TEMPLATES,
+            "tool_use": cls.TOOL_USE_TEMPLATES,
+            "multi_turn": cls.MULTI_TURN_TEMPLATES,
+        }
+        return template_map.get(category, [])
+
+    @classmethod
+    def get_all_templates(cls) -> Dict[str, List[str]]:
+        """Get all templates by category."""
+        return {
+            "coding": cls.CODE_TEMPLATES,
+            "reasoning": cls.REASONING_TEMPLATES,
+            "creative": cls.CREATIVE_TEMPLATES,
+            "tool_use": cls.TOOL_USE_TEMPLATES,
+            "multi_turn": cls.MULTI_TURN_TEMPLATES,
+        }
+
+    @classmethod
+    def _fill_template(cls, template: str) -> str:
+        """Fill template placeholders with random parameters."""
+        result = template
+        for placeholder in cls.PARAMETERS:
+            if "{" + placeholder + "}" in result:
+                options = cls.PARAMETERS[placeholder]
+                result = result.replace("{" + placeholder + "}", random.choice(options))
+        return result
+
+    @classmethod
+    def _infer_complexity(cls, scenario: str) -> str:
+        """Infer complexity from generated scenario."""
+        words = len(scenario.split())
+        if words > 20:
+            return "hard"
+        if words > 12:
+            return "medium"
+        return "simple"
+
+    @classmethod
+    def _requires_tools(cls, scenario: str) -> bool:
+        """Check if scenario requires tool use."""
+        tool_keywords = ["search", "find", "look up", "current", "latest"]
+        return any(kw in scenario.lower() for kw in tool_keywords)
+
+    @classmethod
+    def generate_batch(cls, count: int, category: str = None) -> List[Dict[str, Any]]:
+        """Generate a batch of scenarios."""
+        scenarios = []
+        for _ in range(count):
+            scenario = cls.generate_random_scenario(category)
+            if scenario:
+                scenarios.append(scenario)
+        return scenarios
+
+    @classmethod
+    def generate_diverse_batch(cls, total_count: int) -> List[Dict[str, Any]]:
+        """Generate diverse scenarios across all categories."""
+        categories = list(cls.get_all_templates().keys())
+        scenarios = []
+        
+        for category in categories:
+            category_count = max(1, total_count // len(categories))
+            scenarios.extend(cls.generate_batch(category_count, category))
+        
+        # Shuffle to mix categories
+        random.shuffle(scenarios)
+        return scenarios[:total_count]
+
+
+# Add scenario generation to main pipeline
+def generate_scenarios(count: int = 100, output_dir: str = "./scenarios") -> None:
+    """Generate synthetic scenarios and save to files."""
+    out_path = Path(output_dir)
+    out_path.mkdir(parents=True, exist_ok=True)
+    
+    # Generate diverse scenarios
+    scenarios = ScenarioGenerator.generate_diverse_batch(count)
+    
+    # Save to JSONL
+    with open(out_path / "generated_scenarios.jsonl", "w", encoding="utf-8") as f:
+        for scenario in scenarios:
+            f.write(json.dumps(scenario, ensure_ascii=False) + "\n")
+    
+    # Save to markdown
+    lines = [
+        "# Generated Scenarios",
+        "",
+        f"Generated {len(scenarios)} synthetic scenarios for testing.",
+        "",
+    ]
+    
+    # Group by category
+    grouped: Dict[str, List[Dict[str, Any]]] = {}
+    for scenario in scenarios:
+        grouped.setdefault(scenario["category"], []).append(scenario)
+    
+    for category, category_scenarios in sorted(grouped.items()):
+        lines.append(f"## {category.title()}")
+        lines.append(f"*{len(category_scenarios)} scenarios*")
+        lines.append("")
+        for scenario in category_scenarios:
+            lines.append(f"- **{scenario['complexity'].title()}**: {scenario['scenario']}")
+        lines.append("")
+    
+    with open(out_path / "generated_scenarios.md", "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+    
+    logger.info("Generated %d scenarios to %s", len(scenarios), out_path)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Ornstein Curator v2 — Hermes trace processor",
+        description="TALOS Trace Curator - Enhanced version",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    
+    # Existing arguments...
     parser.add_argument("--input-dir", type=str, help="Directory with raw JSONL session files")
     parser.add_argument("--input-file", type=str, help="Single JSONL file to process")
     parser.add_argument("--session-id", type=str, help="Process a single session by ID")
     parser.add_argument("--output-dir", type=str, default="./curated-dataset", help="Output directory")
-    parser.add_argument("--min-quality", type=float, default=DEFAULT_MIN_QUALITY, help="Quality score is computed and logged per trace, but never used to filter (reporting only)")
+    parser.add_argument("--min-quality", type=float, default=DEFAULT_MIN_QUALITY, help="Quality score threshold")
     parser.add_argument("--anonymize-level", choices=["standard", "strict"], default="strict")
     parser.add_argument("--max-similarity", type=float, default=DEFAULT_MAX_SIMILARITY)
-    parser.add_argument("--semantic-dedup", action="store_true", help="Use sentence-transformer embeddings for semantic deduplication (falls back to lexical if unavailable)")
-    parser.add_argument("--export-scenarios", action="store_true", help="Export scenarios.jsonl + scenarios.md for synthetic trace generation")
+    parser.add_argument("--semantic-dedup", action="store_true", help="Use sentence-transformer embeddings")
+    parser.add_argument("--export-scenarios", action="store_true", help="Export scenarios from traces")
     parser.add_argument("--push-to-hub", action="store_true")
     parser.add_argument("--repo-id", type=str, default="DJLougen/ornstein-curated-v2")
-    parser.add_argument("--public", action="store_true", help="Make HF repo public (default private)")
-    parser.add_argument("--generate-mock", action="store_true", help="Create mock data and exit")
-    parser.add_argument("--no-llm-redact", action="store_true", help="Skip the optional LLM redaction pass")
-    parser.add_argument("--exclude-errors", action="store_true", help="Write data_clean.jsonl with only error_class==none traces")
-    parser.add_argument("--skip-redact", action="store_true", help="Skip all PII redaction (use for public HF datasets)")
+    parser.add_argument("--public", action="store_true", help="Make HF repo public")
+    parser.add_argument("--generate-mock", action="store_true", help="Create mock data")
+    parser.add_argument("--no-llm-redact", action="store_true", help="Skip LLM redaction")
+    parser.add_argument("--exclude-errors", action="store_true", help="Write clean-only output")
+    parser.add_argument("--skip-redact", action="store_true", help="Skip PII redaction")
+    
+    # New scenario generation argument
+    parser.add_argument("--generate-scenarios", type=int, help="Generate N synthetic scenarios")
+    
     args = parser.parse_args()
-
+    
+    if args.generate_scenarios:
+        generate_scenarios(args.generate_scenarios)
+        sys.exit(0)
+    
     if args.generate_mock:
         generate_mock_sessions()
         sys.exit(0)

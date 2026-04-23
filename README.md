@@ -1,12 +1,32 @@
 # TALOS — Trace Curator
 
-A Hermes Agent Skill that turns raw agentic session traces into clean, quality-scored, error-classified training datasets ready for Unsloth / Axolotl fine-tuning.
+> Turn raw agentic session traces into clean, quality-scored, error-classified training datasets ready for fine-tuning
 
-**Datasets:** [Talos-kimi-k2.6-Hermes-synthetic](https://huggingface.co/datasets/DJLougen/Talos-kimi-k2.6-Hermes-synthetic) · [Talos-pi-mono-badlogicgames](https://huggingface.co/datasets/DJLougen/Talos-pi-mono-badlogicgames) · [Talos-Scenarios](https://huggingface.co/datasets/DJLougen/Talos-Scenarios)
+[![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://python.org)
+[![HuggingFace](https://img.shields.io/badge/HuggingFace-DJLougen-orange.svg)](https://huggingface.co/djLougen)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Hermes Agent](https://img.shields.io/badge/Hermes-Agent-purple.svg)](https://github.com/NousResearch/Hermes)
+
+**A Hermes Agent Skill for comprehensive trace processing, quality assessment, and dataset generation**
+
+**Published Datasets:** [Talos-kimi-k2.6-Hermes-synthetic](https://huggingface.co/datasets/DJLougen/Talos-kimi-k2.6-Hermes-synthetic) · [Talos-pi-mono-badlogicgames](https://huggingface.co/datasets/DJLougen/Talos-pi-mono-badlogicgames) · [Talos-Scenarios](https://huggingface.co/datasets/DJLougen/Talos-Scenarios)
 
 ---
 
-## What It Does
+## 🚀 Features
+
+- **🔍 8-Stage Pipeline**: Ingest → Anonymize → Quality Score → Error Classify → Deduplicate → Dual Export → Dataset Card → HF Upload
+- **📊 Enhanced Quality Scoring**: 6-dimension composite with reasoning depth analysis and conversation flow detection
+- **🎯 5-Factor Error Taxonomy**: `tool_failure`, `syntax_error`, `reasoning_error`, `safety_refusal`, `timeout_stall`, `none`
+- **🔄 Multi-Turn Support**: Advanced multi-turn conversation capture and generation
+- **🎲 Scenario Generation**: Intelligent template-based scenario creation with diverse parameter libraries
+- **🧠 Semantic Deduplication**: Enhanced semantic dedup with hybrid similarity scoring
+- **📤 Dual Export**: Axolotl `messages` + ShareGPT `conversations` formats
+- **🌐 HuggingFace Integration**: Direct upload with auto-generated dataset cards
+
+---
+
+## 📋 What It Does
 
 One command. Eight stages. Zero traces filtered out.
 
@@ -19,20 +39,23 @@ One command. Eight stages. Zero traces filtered out.
 | **Deduplicate** | Lexical diversity that ignores boilerplate tool-call JSON |
 | **Dual Export** | Axolotl `messages` + ShareGPT `conversations` simultaneously |
 | **Dataset Card** | Auto-generated stats, error breakdown, Axolotl YAML |
+| **Scenario Extraction** | Multi-turn conversation capture with semantic categorization |
+| **Scenario Generation** | Template-based scenario creation with diverse parameters |
 | **HF Upload** | Optional `--push-to-hub` to create a dataset repo |
 
 ---
 
-## Installation
+## 💻 Installation
 
 ```bash
-# Clone the skill
+# Clone the repository
 git clone https://github.com/DJLougen/TALOS-trace-curator.git
+cd TALOS-trace-curator
 
-# Install dependencies (only non-stdlib packages)
+# Install core dependencies
 pip install -r requirements.txt
 
-# Optional: semantic deduplication
+# Optional: semantic deduplication (recommended)
 pip install sentence-transformers
 
 # Optional: HuggingFace upload
@@ -41,23 +64,30 @@ huggingface-cli login
 
 ---
 
-## Quick Start
+## 🏃 Quick Start
 
+### Basic Usage
 ```bash
 # Process all sessions in ~/.hermes/sessions/
 python scripts/trace_processor.py \
   --input-dir ~/.hermes/sessions/ \
   --output-dir ./curated \
   --anonymize-level strict
+```
 
-# Process a single exported file
+### Single File Processing
+```bash
+# Process a single exported file with clean output
 python scripts/trace_processor.py \
   --input-file ./sessions.jsonl \
   --output-dir ./curated \
   --skip-redact \
   --exclude-errors
+```
 
-# Full pipeline + HF upload
+### Full Pipeline + HF Upload
+```bash
+# Complete processing with HuggingFace upload
 python scripts/trace_processor.py \
   --input-dir ~/.hermes/sessions/ \
   --output-dir ./curated \
@@ -66,9 +96,21 @@ python scripts/trace_processor.py \
   --repo-id DJLougen/my-curated-dataset
 ```
 
+### Scenario Generation
+```bash
+# Generate 100 diverse synthetic scenarios
+python scripts/trace_processor.py --generate-scenarios 100
+```
+
+### Multi-Turn Trace Generation
+```bash
+# Generate 100 traces with 30% multi-turn conversations
+python scripts/generate_traces.py 100 --multi-turn
+```
+
 ---
 
-## CLI Flags
+## ⚙️ CLI Flags
 
 | Flag | Description | Default |
 |------|-------------|---------|
@@ -83,6 +125,7 @@ python scripts/trace_processor.py \
 | `--semantic-dedup` | Use sentence-transformer embeddings | `False` |
 | `--exclude-errors` | Write `data_clean.jsonl` with only `error_class == "none"` | `False` |
 | `--export-scenarios` | Extract user prompts to `scenarios.jsonl` + `scenarios.md` | `False` |
+| `--generate-scenarios N` | Generate N synthetic scenarios | `False` |
 | `--push-to-hub` | Upload to HuggingFace Hub | `False` |
 | `--repo-id` | HF dataset repo ID | `DJLougen/ornstein-curated-v2` |
 | `--public` | Make HF repo public | `False` (private) |
@@ -114,10 +157,14 @@ All six sub-scores are bounded [0.0, 1.0]. The final composite is clamped to [0.
 ```python
 thinking_hits = count of <thinking>, <reasoning>, <thought>, <analyze> tags
 substantial   = count of messages with >100 characters
-score = min(1.0, thinking_hits × 0.15 + substantial × 0.10)
+pattern_hits  = count of deep reasoning patterns (let me think, step by step, etc.)
+multi_step    = count of messages with multi-step reasoning indicators
+
+score = min(1.0, thinking_hits × 0.15 + substantial × 0.10 + pattern_hits × 0.08 + multi_step × 0.12)
 ```
-- A trace with 4 thinking tags + 6 substantial messages → 1.0
-- Bare system→user→assistant with no thinking → ~0.1–0.2
+- Enhanced detection of deep reasoning patterns beyond just thinking tags
+- Rewards multi-step reasoning with explicit step indicators
+- A trace with 4 thinking tags + 6 substantial messages + deep reasoning → 1.0
 
 #### 2. Structural Integrity (20%)
 Step-function score from four boolean checks:
@@ -142,7 +189,6 @@ if no blocks: score = 0.5
 score = (blocks that parse as JSON) / len(blocks)
 ```
 - All valid JSON → 1.0; mixed → proportional; empty tags → 0.5
-- **Common failure mode**: Code inside tool blocks instead of JSON (seen heavily in pi-mono coding traces)
 
 #### 4. Multi-Turn Coherence (15%)
 ```python
@@ -151,9 +197,11 @@ if avg_assistant < 20 chars and avg_user > 50: score = 0.2  # short-reply penalt
 
 switches = count of role alternations (user→assistant→user...)
 ratio    = switches / (total_messages - 1)
-score    = 0.5 + (ratio × 0.5)
+flow_bonus = contextual reference detection (yes, no, based on, etc.)
+score    = 0.5 + (ratio × 0.5) + flow_bonus
 ```
 - Perfect alternation → 1.0; all same role → 0.5; very short replies → 0.2
+- Enhanced with conversation flow detection for contextual responses
 
 #### 5. Length Filter (15%)
 ```python
@@ -256,6 +304,86 @@ output_dir/
 
 ---
 
+## Scenario Export (`--export-scenarios`)
+
+Extracts every unique user prompt into two extra files for bootstrapping synthetic trace generation or benchmarking agents:
+
+- `scenarios.jsonl` — Structured JSON with `scenario`, `category`, `complexity`, `requires_tools`, `source_session_id`, `word_count`, `is_multi_turn`, `turn_count`
+- `scenarios.md` — Human-readable grouped by category with complexity badges and tool-use indicators
+
+### Enhanced Multi-Turn Capture
+
+The scenario extractor now captures multi-turn conversations:
+- Detects clarification scenarios (help me plan, ask me, etc.)
+- Stores follow-up questions for multi-turn interactions
+- Includes full conversation context when available
+
+### Categories
+
+Categories are inferred from prompt text: `coding`, `reasoning`, `creative`, `tool_use`, `science`, `history`, `business`, `philosophy`, `multi_turn`, `general`.
+
+---
+
+## Enhanced Trace Generation
+
+The synthetic trace generator now supports multi-turn conversations:
+
+```bash
+# Generate 100 traces with 30% multi-turn conversations
+python scripts/generate_traces.py 100 --multi-turn
+
+# Generate 100 single-turn traces only
+python scripts/generate_traces.py 100
+```
+
+### Multi-Turn Features
+
+- **Contextual Follow-ups**: Generates relevant follow-up questions based on the initial task
+- **Conversation Flow**: Maintains conversation context across multiple turns
+- **Smart Categorization**: Different follow-up patterns for coding, reasoning, and creative tasks
+
+## Scenario Generation
+
+The pipeline now includes intelligent scenario generation that creates new scenarios based on learned patterns:
+
+```bash
+# Generate 100 diverse synthetic scenarios
+python scripts/trace_processor.py --generate-scenarios 100
+
+# Output goes to ./scenarios/ by default
+```
+
+### How It Works
+
+1. **Template-based generation** with intelligent parameter substitution
+2. **Category-specific templates**: coding, reasoning, creative, tool_use, multi_turn
+3. **Diverse parameter libraries** with realistic technical terms
+4. **Automatic complexity assessment** and tool-use detection
+
+### Example Generated Scenarios
+
+- **Coding**: "Write a Python decorator that transforms data streams using Dijkstra algorithm."
+- **Reasoning**: "Solve this problem: a train leaves station A at 60mph while another leaves station B at 80mph, when do they meet? Show your work step by step."
+- **Multi-turn**: "Help me design a database for real-time analytics. Ask me about requirements first."
+- **Tool Use**: "Search the web for the latest information about quantum computing breakthroughs and summarize key findings."
+
+### Example Multi-Turn Output
+
+```json
+{
+  "session_id": "20260422_112308_001",
+  "messages": [
+    {"role": "system", "content": "You are Hermes Agent..."},
+    {"role": "user", "content": "Implement a binary search tree in Python."},
+    {"role": "assistant", "content": "<thinking>I'll create a BST class with insert, search, and delete methods...</thinking>\n[implementation]"},
+    {"role": "user", "content": "Can you add error handling to that solution?"},
+    {"role": "assistant", "content": "<thinking>I'll add validation for null inputs and type checking...</thinking>\n[enhanced implementation]"}
+  ]
+}
+```
+
+---
+
 ## Repo Structure
 
 ```
@@ -285,6 +413,77 @@ This means no good signal is thrown away, and no one else's definition of "good"
 
 ---
 
-## License
+## 🤝 Contributing
 
-MIT — See [SKILL.md](SKILL.md) for Hermes Skill metadata.
+We welcome contributions! Here's how you can help:
+
+### Development Setup
+```bash
+# Clone and set up development environment
+git clone https://github.com/DJLougen/TALOS-trace-curator.git
+cd TALOS-trace-curator
+pip install -r requirements.txt
+pip install sentence-transformers  # For semantic dedup
+```
+
+### Contribution Areas
+- **New quality scoring dimensions**: Add novel metrics for trace assessment
+- **Enhanced error detection**: Improve error classification patterns
+- **Additional scenario templates**: Expand the scenario generation library
+- **Better deduplication**: Improve semantic similarity detection
+- **Performance optimizations**: Handle larger datasets more efficiently
+
+### Submitting Changes
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+---
+
+## 📚 Documentation
+
+- **[SKILL.md](SKILL.md)**: Hermes Agent Skill manifest and usage guide
+- **[HACKATHON_SUBMISSION.md](HACKATHON_SUBMISSION.md)**: Nous Research Hermes Hackathon submission details
+- **[example-usage.md](example-usage.md)**: Copy-paste command examples
+
+---
+
+## 🐛 Troubleshooting
+
+### Common Issues
+
+**ImportError: No module named 'sentence_transformers'**
+- Install optional dependencies: `pip install sentence-transformers`
+
+**PermissionError when accessing ~/.hermes/sessions/**
+- Ensure you have read access to the sessions directory
+- Use `--input-file` to process specific files instead
+
+**Quality scores seem too low**
+- Quality scoring is intentionally strict; most traces score 0.70-0.80
+- Use `--min-quality 0.60` for less strict thresholds
+
+### Getting Help
+- Check the [HuggingFace datasets](https://huggingface.co/djLougen) for example outputs
+- Review the [example usage guide](example-usage.md) for common scenarios
+- Open an issue on GitHub for bugs or feature requests
+
+---
+
+## 📊 Performance
+
+| Dataset | Traces | Error-Free | Avg Quality | Processing Time |
+|---------|--------|------------|-------------|-----------------|
+| [Talos-kimi-k2.6-Hermes-synthetic](https://huggingface.co/datasets/DJLougen/Talos-kimi-k2.6-Hermes-synthetic) | 993 | 761 (76.6%) | 0.76 | ~2 min |
+| [Talos-pi-mono-badlogicgames](https://huggingface.co/datasets/DJLougen/Talos-pi-mono-badlogicgames) | 611 | 149 (24.4%) | 0.66 | ~1 min |
+| [Talos-Scenarios](https://huggingface.co/datasets/DJLougen/Talos-Scenarios) | 602 | — | — | ~30 sec |
+
+---
+
+## 📝 License
+
+MIT — See [LICENSE](LICENSE) for details.
+
+**Built with ❤️ by the Hermes Agent community**

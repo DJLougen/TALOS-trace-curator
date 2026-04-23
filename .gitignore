@@ -1,2 +1,77 @@
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+*.egg-info/
+MANIFEST
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+
+# OS generated files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Python-specific
+*.py[cod]
+*$py.class
+*.so
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# Documentation
+docs/_build/
+*.rst
+*.txt
+
+# Data files
+*.jsonl
+*.json
+*.csv
+*.parquet
+
+# Configuration files
+.env
+.env.local
+config.py
+
+# Temporary files
+tmp/
+temp/
+.cache/
+.hypothesis/
+
