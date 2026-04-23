@@ -15,6 +15,7 @@ import re
 import sys
 import urllib.request
 import urllib.error
+import random
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
@@ -38,10 +39,11 @@ except ImportError:  # pragma: no cover
 
 try:
     from sentence_transformers import SentenceTransformer
-    from sklearn.metrics.pairwise import cosine_similarity as sk_cosine_sim
+    import numpy as np
     HAS_SENTENCE_TRANSFORMERS = True
 except ImportError:  # pragma: no cover
     HAS_SENTENCE_TRANSFORMERS = False
+    np = None  # Fallback for when sentence_transformers is not available
 
 # ---------------------------------------------------------------------------
 # Constants & Ornstein v1 Thresholds
@@ -771,7 +773,14 @@ class SemanticDiversityFilter:
             try:
                 emb = self._model.encode(text, convert_to_tensor=False)
                 for seen_emb in self._embeddings:
-                    sim = float(***([emb], [seen_emb])[0][0])
+                    # Calculate cosine similarity
+                    dot_product = np.dot(emb, seen_emb)
+                    norm_emb = np.linalg.norm(emb)
+                    norm_seen = np.linalg.norm(seen_emb)
+                    if norm_emb == 0 or norm_seen == 0:
+                        sim = 0.0
+                    else:
+                        sim = float(dot_product / (norm_emb * norm_seen))
                     if sim > self.max_similarity:
                         return True
                 self._embeddings.append(emb)
