@@ -505,7 +505,7 @@ pip install sentence-transformers  # For semantic dedup
 | [Talos-pi-mono-badlogicgames](https://huggingface.co/datasets/DJLougen/Talos-pi-mono-badlogicgames) | 611 | 149 (24.4%) | 0.66 | ~1 min |
 | [Talos-Scenarios](https://huggingface.co/datasets/DJLougen/Talos-Scenarios) | 602 | — | — | ~30 sec |
 
-**Processing Time**: Time to process raw traces through the complete pipeline (quality scoring, error classification, deduplication, and export). These benchmarks were measured on a WSL environment (Ubuntu 22.04) with an Intel i7-12700H processor and 16GB RAM. Actual times may vary based on hardware, dataset size, and complexity of traces.
+**Processing Time**: Time to process raw traces through the complete pipeline (quality scoring, error classification, deduplication, and export). These benchmarks were measured on a system with an NVIDIA RTX 3090 (24GB) and Intel i9 processor. Actual times may vary based on hardware, dataset size, and complexity of traces.
 
 ---
 
