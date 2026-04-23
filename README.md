@@ -15,13 +15,13 @@
 
 ## 🚀 Features
 
-- **🔍 8-Stage Pipeline**: Ingest → Anonymize → Quality Score → Error Classify → Deduplicate → Dual Export → Dataset Card → HF Upload
+- **🔍 9-Stage Pipeline**: Ingest → Anonymize → Quality Score → Error Classify → Deduplicate → Triple Export → Dataset Card → HF Upload
 - **📊 Enhanced Quality Scoring**: 6-dimension composite with reasoning depth analysis and conversation flow detection
 - **🎯 5-Factor Error Taxonomy**: `tool_failure`, `syntax_error`, `reasoning_error`, `safety_refusal`, `timeout_stall`, `none`
 - **🔄 Multi-Turn Support**: Advanced multi-turn conversation capture and generation
 - **🎲 Scenario Generation**: Intelligent template-based scenario creation with diverse parameter libraries
 - **🧠 Semantic Deduplication**: Enhanced semantic dedup with hybrid similarity scoring
-- **📤 Dual Export**: Axolotl `messages` + ShareGPT `conversations` formats
+- **📤 Triple Export**: Axolotl `messages` + ShareGPT `conversations` + Unsloth `messages` formats
 - **🌐 HuggingFace Integration**: Direct upload with auto-generated dataset cards
 
 ---
@@ -37,7 +37,7 @@ One command. Eight stages. Zero traces filtered out.
 | **Quality Score** | 6-dimension composite (0.0–1.0). Reported, never filtered |
 | **Error Classify** | 5-factor taxonomy per trace: `tool_failure`, `syntax_error`, `reasoning_error`, `safety_refusal`, `timeout_stall`, `none` |
 | **Deduplicate** | Lexical diversity that ignores boilerplate tool-call JSON |
-| **Dual Export** | Axolotl `messages` + ShareGPT `conversations` simultaneously |
+| **Triple Export** | Axolotl `messages` + ShareGPT `conversations` + Unsloth `messages` simultaneously |
 | **Dataset Card** | Auto-generated stats, error breakdown, Axolotl YAML |
 | **Scenario Extraction** | Multi-turn conversation capture with semantic categorization |
 | **Scenario Generation** | Template-based scenario creation with diverse parameters |
@@ -131,6 +131,29 @@ python scripts/generate_traces.py 100 --multi-turn
 | `--public` | Make HF repo public | `False` (private) |
 | `--no-llm-redact` | Skip optional LLM redaction pass | `False` |
 | `--generate-mock` | Create mock session data for testing | `False` |
+
+---
+
+## 📤 Triple Export Formats
+
+TALOS generates three different export formats simultaneously to support various fine-tuning frameworks:
+
+### Axolotl Format (`data.jsonl`)
+- Full metadata with quality scores, error classes, and trace IDs
+- Messages array with system/user/assistant roles
+- Enhanced metadata for advanced analysis
+
+### ShareGPT Format (`sharegpt.jsonl`)
+- Classic `conversations` format
+- `from` field: `system`, `human`, `gpt`
+- `value` field: message content
+- Maximum compatibility with existing tooling
+
+### Unsloth Format (`unsloth.jsonl`)
+- Simplified `messages` array focused on content
+- Includes `source_session_id`, `quality_score`, and `error_class`
+- Optimized for Unsloth fine-tuning workflows
+- Clean separation of concerns
 
 ---
 
